@@ -76,39 +76,24 @@ class World {
 
     fun addSystem(vararg systems: System) = this.systems.addAll(systems)
 
-    inline fun <reified T : Component> getComponentStore(): MutableMap<String, MutableList<String>> {
-        return if(stores.containsKey(T::class)) {
-            stores[T::class]!!
-        } else {
-            stores[T::class] = mutableMapOf()
-            stores[T::class]!!
-        }
-    }
+    inline fun <reified T : Component> getComponentStore() =
+        stores.getOrPut(T::class) { mutableMapOf() }
 
-    inline fun <reified T : Component> getEntityStore(entity: String): MutableList<String> {
-        val componentStore = getComponentStore<T>()
-        return if(componentStore.containsKey(entity)) {
-            componentStore[entity]!!
-        } else {
-            componentStore[entity] = mutableListOf()
-            componentStore[entity]!!
-        }
-    }
+    inline fun <reified T : Component> getEntityStore(entity: String) =
+        getComponentStore<T>().getOrPut(entity) { mutableListOf() }
 
     inline fun <reified T : Component> addComponent(entity: String, init: T) {
-        val component = createComponent(init)
-        getEntityStore<T>(entity).add(component)
+        getEntityStore<T>(entity).add(createComponent(init))
     }
 
-    inline fun <reified T : Component> has(entity: String) = getEntityStore<T>(entity).size > 0
+    inline fun <reified T : Component> has(entity: String) =
+        getEntityStore<T>(entity).size > 0
 
-    inline fun <reified T : Component> getComponent(entity: String): T {
-        return components[getEntityStore<T>(entity).first()] as T
-    }
+    inline fun <reified T : Component> getComponent(entity: String) =
+        components[getEntityStore<T>(entity).first()] as T
 
-    inline fun <reified T : Component> getComponents(entity: String): List<T> {
-        return getEntityStore<T>(entity).map { components[it] as T }
-    }
+    inline fun <reified T : Component> getComponents(entity: String) =
+        getEntityStore<T>(entity).map { components[it] as T }
 
     fun update() {
         systems.forEach { it.invoke(this) }
