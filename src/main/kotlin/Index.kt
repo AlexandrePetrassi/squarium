@@ -10,42 +10,44 @@ external object UUID {
     fun v4(): String
 }
 
+lateinit var context2D: CanvasRenderingContext2D
+
 fun main() {
     val c = document.getElementById("myCanvas") as HTMLCanvasElement
-    val ctx = c.getContext("2d") as CanvasRenderingContext2D
+    context2D = c.getContext("2d") as CanvasRenderingContext2D
 
     val world = World()
     world.addSystem(DrawSystem, GravitySystem, MovableSystem)
     val first = world.createEntity()
-    world.addComponent(first, Transform(
-        position = Vector(10.0, 10.0),
+    world.addComponent<Transform>(first) {
+        position = Vector(10.0, 10.0)
         size = Vector(10.0, 10.0)
-    ))
-    world.addComponent(first, Drawable(
-        ctx = ctx
-    ))
-    world.addComponent(first, Velocity(
+    }
+    world.addComponent<Drawable>(first) {
+        ctx = context2D
+    }
+    world.addComponent<Velocity>(first) {
         velocity = Vector(0.25, 0.0)
-    ))
+    }
 
     val second = world.createEntity()
-    world.addComponent(second,Transform(
-        position = Vector(20.0, 20.0),
+    world.addComponent<Transform>(second) {
+        position = Vector(20.0, 20.0)
         size = Vector(10.0, 10.0)
-    ))
-    world.addComponent(second,Drawable(
-        ctx = ctx
-    ))
-    world.addComponent(second, Velocity(
+    }
+    world.addComponent<Drawable>(second) {
+        ctx = context2D
+    }
+    world.addComponent<Velocity>(second) {
         velocity = Vector(0.25, 0.0)
-    ))
-    world.addComponent(second, GravitySensitive)
+    }
+    world.addComponent<GravitySensitive>(second)
 
-    val frameRate = 1/60
-    val width = ctx.canvas.width.toDouble()
-    val height = ctx.canvas.height.toDouble()
+    val frameRate = 1 / 60
+    val width = context2D.canvas.width.toDouble()
+    val height = context2D.canvas.height.toDouble()
     window.setInterval({
-        ctx.clearRect(0.0, 0.0, width, height)
+        context2D.clearRect(0.0, 0.0, width, height)
         world.update()
     }, frameRate)
 }
@@ -54,23 +56,26 @@ class World {
     val entities = mutableMapOf<String, String>()
     val tags = mutableMapOf<String, String>()
     val components = mutableMapOf<String, Component>()
-    val stores = mutableMapOf<KClass<*>, MutableMap<String, MutableList<String>>>()
+    val stores =
+        mutableMapOf<KClass<*>, MutableMap<String, MutableList<String>>>()
     val systems = mutableListOf<System>()
 
     fun getEntities(): Set<String> = entities.keys
 
-    fun createEntity (tag: String = ""): String {
+    fun createEntity(tag: String = ""): String {
         val id = UUID.v4()
         entities[id] = tag
-        if(tag.isNotBlank()) tags[tag] = id
+        if (tag.isNotBlank()) tags[tag] = id
         return id
     }
 
     fun getId(tag: String) = tags[tag]
 
-    fun <T : Component> createComponent(init: T): String {
+    @Suppress("unused")
+    inline fun <reified T : Component> createComponent(crossinline init: T.() -> Unit): String {
         val id = UUID.v4()
-        components[id] = init
+        val clazz = T::class.js
+        components[id] = js("new clazz()").unsafeCast<T>().also { init(it) }
         return id
     }
 
@@ -82,7 +87,10 @@ class World {
     inline fun <reified T : Component> getEntityStore(entity: String) =
         getComponentStore<T>().getOrPut(entity) { mutableListOf() }
 
-    inline fun <reified T : Component> addComponent(entity: String, init: T) {
+    inline fun <reified T : Component> addComponent(
+        entity: String,
+        crossinline init: T.() -> Unit = {}
+    ) {
         getEntityStore<T>(entity).add(createComponent(init))
     }
 
@@ -114,9 +122,14 @@ class Velocity(
     var velocity: Vector = Vector()
 ) : Component
 
-class Drawable(
+class Drawable : Component {
+    private lateinit var _ctx: CanvasRenderingContext2D
     var ctx: CanvasRenderingContext2D
-) : Component
+        get() = _ctx
+        set(it) {
+            _ctx = it
+        }
+}
 
 object GravitySensitive : Component
 
@@ -130,7 +143,7 @@ interface System {
         .forEach { world.logic(it) }
 }
 
-object DrawSystem: System {
+object DrawSystem : System {
     override fun World.filter(entity: String) =
         has<Drawable>(entity) && has<Transform>(entity)
 
