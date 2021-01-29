@@ -80,14 +80,10 @@ interface World {
 object WorldOperations {
     inline fun <reified T : Component> World.createComponent(
         crossinline init: T.() -> Unit
-    ): String {
-        val id = UUID.v4()
-        T::class.js.let {
-            val component = js("new it()").unsafeCast<T>()
-            init(component)
-            components[id] = component
-        }
-        return id
+    ): String = T::class.js.let {
+        val component = js("new it()").unsafeCast<T>()
+        init(component)
+        UUID.v4().also { components[it] = component }
     }
 
     inline fun <reified T : Component> World.getComponentStore() =
