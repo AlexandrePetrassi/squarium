@@ -20,31 +20,34 @@ fun main() {
     val c = document.getElementById("myCanvas") as HTMLCanvasElement
     context2D = c.getContext("2d") as CanvasRenderingContext2D
 
-    val world = ConcreteWorld(DrawSystem, GravitySystem, MovableSystem)
-    val first = world.createEntity()
-    world.addComponent<Transform>(first) {
-        position = Vector(10.0, 10.0)
-        size = Vector(10.0, 10.0)
-    }
-    world.addComponent<Drawable>(first) {
-        ctx = context2D
-    }
-    world.addComponent<Velocity>(first) {
-        velocity = Vector(0.25, 0.0)
-    }
+    val world = World.create(DrawSystem, GravitySystem, MovableSystem) {
+        createEntity("Walker") {
+            addComponent<Transform> {
+                position = Vector(10.0, 10.0)
+                size = Vector(10.0, 10.0)
+            }
+            addComponent<Drawable> {
+                ctx = context2D
+            }
+            addComponent<Velocity> {
+                velocity = Vector(0.25, 0.0)
+            }
+        }
 
-    val second = world.createEntity()
-    world.addComponent<Transform>(second) {
-        position = Vector(20.0, 20.0)
-        size = Vector(10.0, 10.0)
+        createEntity("Faller") {
+            addComponent<Transform> {
+                position = Vector(20.0, 20.0)
+                size = Vector(10.0, 10.0)
+            }
+            addComponent<Drawable> {
+                ctx = context2D
+            }
+            addComponent<Velocity> {
+                velocity = Vector(0.25, 0.0)
+            }
+            addComponent<GravitySensitive>()
+        }
     }
-    world.addComponent<Drawable>(second) {
-        ctx = context2D
-    }
-    world.addComponent<Velocity>(second) {
-        velocity = Vector(0.25, 0.0)
-    }
-    world.addComponent<GravitySensitive>(second)
 
     val frameRate = 1 / 60
     val width = context2D.canvas.width.toDouble()
@@ -62,11 +65,11 @@ interface World {
     val stores: MutableMap<KClass<*>, MutableMap<String, MutableList<String>>>
     val systems: MutableList<System>
 
-    fun createEntity(tag: String = ""): String {
+    fun createEntity(tag: String = "", init: Pair<World, String>.() -> Unit = {}): String {
         val id = UUID.v4()
         entities[id] = tag
         if (tag.isNotBlank()) tags[tag] = id
-        return id
+        return id.also { (this to it).init() }
     }
 
     fun getId(tag: String): String =
@@ -74,6 +77,19 @@ interface World {
 
     fun update() {
         systems.forEach { it.invoke(this) }
+    }
+
+    companion object {
+        private class ConcreteWorld(
+            override val systems: MutableList<System>,
+            override val entities: MutableMap<String, String> = mutableMapOf(),
+            override val tags: MutableMap<String, String> = mutableMapOf(),
+            override val components: MutableMap<String, Component> = mutableMapOf(),
+            override val stores: MutableMap<KClass<*>, MutableMap<String, MutableList<String>>> = mutableMapOf()
+        ) : World
+
+        fun create(vararg systems: System, init: World.() -> Unit) =
+            ConcreteWorld(systems.toMutableList()).apply { init() } as World
     }
 }
 
@@ -104,14 +120,12 @@ object WorldOperations {
 
     inline fun <reified T : Component> World.getComponent(entity: String) =
         components[getEntityStore<T>(entity).first()] as T
-}
 
-class ConcreteWorld(vararg systems: System) : World {
-    override val entities = mutableMapOf<String, String>()
-    override val tags = mutableMapOf<String, String>()
-    override val components = mutableMapOf<String, Component>()
-    override val stores = mutableMapOf<KClass<*>, MutableMap<String, MutableList<String>>>()
-    override val systems = mutableListOf<System>().apply { plusAssign(systems.asList()) }
+    inline fun <reified T : Component> Pair<World, String>.addComponent(
+        crossinline init: T.() -> Unit = {}
+    ) {
+        first.addComponent(second, init)
+    }
 }
 
 class Vector(
