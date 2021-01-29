@@ -1,8 +1,11 @@
+import WorldOperations.addComponent
+import WorldOperations.getComponent
+import WorldOperations.has
 import kotlinx.browser.document
 import kotlinx.browser.window
 import org.w3c.dom.CanvasRenderingContext2D
 import org.w3c.dom.HTMLCanvasElement
-import kotlin.reflect.*
+import kotlin.reflect.KClass
 
 @JsModule("uuid")
 @JsNonModule
@@ -12,12 +15,12 @@ external object UUID {
 
 lateinit var context2D: CanvasRenderingContext2D
 
+@Suppress("MagicNumber")
 fun main() {
     val c = document.getElementById("myCanvas") as HTMLCanvasElement
     context2D = c.getContext("2d") as CanvasRenderingContext2D
 
-    val world = World()
-    world.addSystem(DrawSystem, GravitySystem, MovableSystem)
+    val world = ConcreteWorld(DrawSystem, GravitySystem, MovableSystem)
     val first = world.createEntity()
     world.addComponent<Transform>(first) {
         position = Vector(10.0, 10.0)
@@ -52,15 +55,12 @@ fun main() {
     }, frameRate)
 }
 
-class World {
-    val entities = mutableMapOf<String, String>()
-    val tags = mutableMapOf<String, String>()
-    val components = mutableMapOf<String, Component>()
-    val stores =
-        mutableMapOf<KClass<*>, MutableMap<String, MutableList<String>>>()
-    val systems = mutableListOf<System>()
-
-    fun getEntities(): Set<String> = entities.keys
+interface World {
+    val entities: MutableMap<String, String>
+    val tags: MutableMap<String, String>
+    val components: MutableMap<String, Component>
+    val stores: MutableMap<KClass<*>, MutableMap<String, MutableList<String>>>
+    val systems: MutableList<System>
 
     fun createEntity(tag: String = ""): String {
         val id = UUID.v4()
@@ -69,43 +69,53 @@ class World {
         return id
     }
 
-    fun getId(tag: String) = tags[tag]
+    fun getId(tag: String): String =
+        tags[tag] ?: ""
 
-    @Suppress("unused")
-    inline fun <reified T : Component> createComponent(crossinline init: T.() -> Unit): String {
+    fun update() {
+        systems.forEach { it.invoke(this) }
+    }
+}
+
+object WorldOperations {
+    inline fun <reified T : Component> World.createComponent(
+        crossinline init: T.() -> Unit
+    ): String {
         val id = UUID.v4()
-        val clazz = T::class.js
-        components[id] = js("new clazz()").unsafeCast<T>().also { init(it) }
+        T::class.js.let {
+            val component = js("new it()").unsafeCast<T>()
+            init(component)
+            components[id] = component
+        }
         return id
     }
 
-    fun addSystem(vararg systems: System) = this.systems.addAll(systems)
-
-    inline fun <reified T : Component> getComponentStore() =
+    inline fun <reified T : Component> World.getComponentStore() =
         stores.getOrPut(T::class) { mutableMapOf() }
 
-    inline fun <reified T : Component> getEntityStore(entity: String) =
+    inline fun <reified T : Component> World.getEntityStore(entity: String) =
         getComponentStore<T>().getOrPut(entity) { mutableListOf() }
 
-    inline fun <reified T : Component> addComponent(
+    inline fun <reified T : Component> World.addComponent(
         entity: String,
         crossinline init: T.() -> Unit = {}
     ) {
         getEntityStore<T>(entity).add(createComponent(init))
     }
 
-    inline fun <reified T : Component> has(entity: String) =
+    inline fun <reified T : Component> World.has(entity: String) =
         getEntityStore<T>(entity).size > 0
 
-    inline fun <reified T : Component> getComponent(entity: String) =
+    inline fun <reified T : Component> World.getComponent(entity: String) =
         components[getEntityStore<T>(entity).first()] as T
+}
 
-    inline fun <reified T : Component> getComponents(entity: String) =
-        getEntityStore<T>(entity).map { components[it] as T }
-
-    fun update() {
-        systems.forEach { it.invoke(this) }
-    }
+class ConcreteWorld(vararg systems: System) : World {
+    override val entities = mutableMapOf<String, String>()
+    override val tags = mutableMapOf<String, String>()
+    override val components = mutableMapOf<String, Component>()
+    override val stores = mutableMapOf<KClass<*>, MutableMap<String, MutableList<String>>>()
+    override val systems = mutableListOf<System>().apply { plusAssign(systems.asList()) }
 }
 
 class Vector(
@@ -126,9 +136,7 @@ class Drawable : Component {
     private lateinit var _ctx: CanvasRenderingContext2D
     var ctx: CanvasRenderingContext2D
         get() = _ctx
-        set(it) {
-            _ctx = it
-        }
+        set(it) { _ctx = it }
 }
 
 object GravitySensitive : Component
@@ -138,7 +146,7 @@ interface Component
 interface System {
     fun World.filter(entity: String): Boolean
     fun World.logic(entity: String)
-    fun invoke(world: World) = world.getEntities()
+    fun invoke(world: World) = world.entities.keys
         .filter { world.filter(it) }
         .forEach { world.logic(it) }
 }
@@ -182,6 +190,7 @@ object GravitySystem : System {
     }
 }
 
+@Suppress("MagicNumber")
 object Physics {
     val gravity = Vector(0.0, 0.025)
 }
